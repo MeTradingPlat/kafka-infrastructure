@@ -1,0 +1,162 @@
+name: CD Kafka Infrastructure
+
+on:
+  push:
+    branches: ["master", "main"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create Docker Network
+        run: |
+          docker network create metradingplat-network 2>/dev/null || echo "Network already exists"
+
+      - name: Stop existing containers (if updating)
+        run: |
+          docker stop kafka kafka-ui zookeeper 2>/dev/null || true
+          docker rm kafka kafka-ui zookeeper 2>/dev/null || true
+
+      - name: Deploy Zookeeper
+        run: |
+          echo "Deploying Zookeeper..."
+          docker run -d \
+            --name zookeeper \
+            --hostname zookeeper \
+            --network metradingplat-network \
+            --restart unless-stopped \
+            -e ZOOKEEPER_CLIENT_PORT=2181 \
+            -e ZOOKEEPER_TICK_TIME=2000 \
+            -p 2181:2181 \
+            -v zookeeper_data:/var/lib/zookeeper/data \
+            -v zookeeper_log:/var/lib/zookeeper/log \
+            confluentinc/cp-zookeeper:7.5.0
+
+      - name: Wait for Zookeeper
+        run: |
+          echo "Waiting for Zookeeper to be ready..."
+          for i in {1..30}; do
+            if docker exec zookeeper bash -c "echo ruok | nc localhost 2181" 2>/dev/null | grep -q "imok"; then
+              echo "Zookeeper is ready!"
+              break
+            fi
+            echo "Attempt $i/30 - Zookeeper not ready yet..."
+            sleep 2
+          done
+
+      - name: Deploy Kafka
+        run: |
+          echo "Deploying Kafka..."
+          docker run -d \
+            --name kafka \
+            --hostname kafka \
+            --network metradingplat-network \
+            --restart unless-stopped \
+            -e KAFKA_BROKER_ID=1 \
+            -e KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181 \
+            -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092 \
+            -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT \
+            -e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
+            -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+            -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+            -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+            -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=true \
+            -e KAFKA_LOG_RETENTION_HOURS=168 \
+            -p 9092:9092 \
+            -p 29092:29092 \
+            -v kafka_data:/var/lib/kafka/data \
+            confluentinc/cp-kafka:7.5.0
+
+      - name: Wait for Kafka
+        run: |
+          echo "Waiting for Kafka to be ready..."
+          for i in {1..30}; do
+            if docker exec kafka kafka-broker-api-versions --bootstrap-server localhost:9092 2>/dev/null; then
+              echo "Kafka is ready!"
+              break
+            fi
+            echo "Attempt $i/30 - Kafka not ready yet..."
+            sleep 3
+          done
+
+      - name: Create Kafka Topics
+        run: |
+          echo "Creating Kafka topics..."
+
+          # Function to create topic
+          create_topic() {
+            local topic=$1
+            docker exec kafka kafka-topics \
+              --bootstrap-server localhost:9092 \
+              --create \
+              --if-not-exists \
+              --topic $topic \
+              --partitions 3 \
+              --replication-factor 1
+          }
+
+          # Create all MeTradingPlat topics
+          create_topic "signals"
+          create_topic "logs"
+          create_topic "asset-state"
+          create_topic "order-requests"
+          create_topic "logs.notifications"
+          create_topic "orders.updates"
+          create_topic "marketdata.stream"
+          create_topic "realtime-updates"
+
+          echo "Topics created successfully!"
+
+      - name: Deploy Kafka UI (Optional monitoring)
+        run: |
+          echo "Deploying Kafka UI..."
+          docker run -d \
+            --name kafka-ui \
+            --network metradingplat-network \
+            --restart unless-stopped \
+            -e KAFKA_CLUSTERS_0_NAME=metradingplat \
+            -e KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092 \
+            -e KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181 \
+            -p 8090:8080 \
+            provectuslabs/kafka-ui:latest
+
+      - name: Verify Deployment
+        run: |
+          echo "=== Kafka Infrastructure Status ==="
+          docker ps --filter "name=zookeeper" --filter "name=kafka" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+          echo ""
+          echo "=== Kafka Topics ==="
+          docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list
+
+          echo ""
+          echo "=== Kafka UI ==="
+          echo "Available at: http://localhost:8090"
+
+      - name: Health Check
+        run: |
+          sleep 5
+
+          # Check Zookeeper
+          if docker exec zookeeper bash -c "echo ruok | nc localhost 2181" | grep -q "imok"; then
+            echo "✓ Zookeeper: Healthy"
+          else
+            echo "✗ Zookeeper: Unhealthy"
+            exit 1
+          fi
+
+          # Check Kafka
+          if docker exec kafka kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1; then
+            echo "✓ Kafka: Healthy"
+          else
+            echo "✗ Kafka: Unhealthy"
+            exit 1
+          fi
+
+          echo ""
+          echo "Kafka infrastructure deployed successfully!"
