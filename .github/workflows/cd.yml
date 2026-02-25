@@ -35,6 +35,8 @@ jobs:
             --label component="zookeeper" \
             -e ZOOKEEPER_CLIENT_PORT=2181 \
             -e ZOOKEEPER_TICK_TIME=2000 \
+            -e ZOOKEEPER_HEAP_OPTS="-Xms64m -Xmx128m" \
+            --memory 256m \
             -p 2181:2181 \
             -v zookeeper_data:/var/lib/zookeeper/data \
             -v zookeeper_log:/var/lib/zookeeper/log \
@@ -72,7 +74,18 @@ jobs:
             -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
             -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
             -e KAFKA_AUTO_CREATE_TOPICS_ENABLE=true \
-            -e KAFKA_LOG_RETENTION_HOURS=168 \
+            -e KAFKA_LOG_RETENTION_HOURS=24 \
+            -e KAFKA_LOG_RETENTION_BYTES=268435456 \
+            -e KAFKA_LOG_SEGMENT_BYTES=67108864 \
+            -e KAFKA_NUM_PARTITIONS=1 \
+            -e KAFKA_DEFAULT_REPLICATION_FACTOR=1 \
+            -e KAFKA_NUM_IO_THREADS=2 \
+            -e KAFKA_NUM_NETWORK_THREADS=2 \
+            -e KAFKA_BACKGROUND_THREADS=2 \
+            -e KAFKA_LOG_CLEANER_THREADS=1 \
+            -e KAFKA_NUM_REPLICA_FETCHERS=1 \
+            -e KAFKA_HEAP_OPTS="-Xms128m -Xmx512m" \
+            --memory 768m \
             -p 9092:9092 \
             -p 29092:29092 \
             -v kafka_data:/var/lib/kafka/data \
@@ -131,6 +144,7 @@ jobs:
             -e KAFKA_CLUSTERS_0_NAME=metradingplat \
             -e KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092 \
             -e KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181 \
+            --memory 256m \
             -p 8090:8080 \
             provectuslabs/kafka-ui:latest
 
