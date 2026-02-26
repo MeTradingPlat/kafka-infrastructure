@@ -37,7 +37,7 @@ jobs:
             -e ZOOKEEPER_TICK_TIME=2000 \
             -e ZOOKEEPER_HEAP_OPTS="-Xms64m -Xmx128m" \
             --memory 256m \
-            -p 2181:2181 \
+            -p 127.0.0.1:2181:2181 \
             -v zookeeper_data:/var/lib/zookeeper/data \
             -v zookeeper_log:/var/lib/zookeeper/log \
             confluentinc/cp-zookeeper:7.5.0
@@ -86,8 +86,8 @@ jobs:
             -e KAFKA_NUM_REPLICA_FETCHERS=1 \
             -e KAFKA_HEAP_OPTS="-Xms128m -Xmx512m" \
             --memory 768m \
-            -p 9092:9092 \
-            -p 29092:29092 \
+            -p 127.0.0.1:9092:9092 \
+            -p 127.0.0.1:29092:29092 \
             -v kafka_data:/var/lib/kafka/data \
             confluentinc/cp-kafka:7.5.0
 
@@ -145,7 +145,7 @@ jobs:
             -e KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092 \
             -e KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181 \
             --memory 256m \
-            -p 8090:8080 \
+            -p 127.0.0.1:8090:8080 \
             provectuslabs/kafka-ui:latest
 
       - name: Verify Deployment
